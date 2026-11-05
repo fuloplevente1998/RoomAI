@@ -50,6 +50,12 @@ android {
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
+      // Supplied by CI secret, never committed to source control.
+      val appCheckSecret = providers.environmentVariable("FIREBASE_APPCHECK_DEBUG_TOKEN").orNull.orEmpty()
+      require(appCheckSecret.isEmpty() || Regex("[0-9a-fA-F-]{36}").matches(appCheckSecret)) {
+        "Invalid FIREBASE_APPCHECK_DEBUG_TOKEN format"
+      }
+      buildConfigField("String", "APP_CHECK_DEBUG_SECRET", "\"$appCheckSecret\"")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
