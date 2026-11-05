@@ -3,6 +3,9 @@ package com.example
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,6 +27,9 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -36,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +61,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.BuildConfig
 import com.example.model.ThemePreference
 import com.example.ui.screens.AssistantScreen
 import com.example.ui.screens.ComparisonScreen
@@ -65,7 +73,10 @@ import com.example.ui.screens.SubscriptionScreen
 import com.example.ui.theme.RoomAITheme
 import com.example.util.ImageUtils
 import com.example.util.configureAppCheck
+import com.example.util.readAppCheckDebugSecret
 import com.example.viewmodel.RoomAiViewModel
+import com.google.firebase.appcheck.FirebaseAppCheck
+import kotlinx.coroutines.delay
 
 object RoomRoutes {
     const val ROUTE_HOME = "home"
@@ -135,6 +146,41 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RoomAiAppRoot() {
     val context = LocalContext.current
+    var debugSecret by remember { mutableStateOf<String?>(null) }
+    var showDebugDialog by remember { mutableStateOf(BuildConfig.DEBUG) }
+    if (BuildConfig.DEBUG) {
+        LaunchedEffect(Unit) {
+            // Trigger debug-provider secret generation; a rejected token is expected until allowlisted.
+            FirebaseAppCheck.getInstance().getAppCheckToken(false)
+            repeat(30) {
+                debugSecret = readAppCheckDebugSecret(context)
+                if (!debugSecret.isNullOrBlank()) return@LaunchedEffect
+                delay(500)
+            }
+        }
+        if (showDebugDialog) {
+            AlertDialog(
+                onDismissRequest = { showDebugDialog = false },
+                title = { Text("Firebase App Check – debug token") },
+                text = {
+                    Text(
+                        debugSecret ?: "Token generálása folyamatban… Ha nem jelenik meg, indítsd újra az alkalmazást."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        debugSecret?.let { secret ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Firebase App Check debug token", secret))
+                        }
+                    }, enabled = !debugSecret.isNullOrBlank()) { Text("Token másolása") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDebugDialog = false }) { Text("Bezárás") }
+                }
+            )
+        }
+    }
     val viewModel: RoomAiViewModel = viewModel(
         factory = RoomAiViewModel.provideFactory(context)
     )
