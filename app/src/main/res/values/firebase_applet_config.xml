@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <resources>
     <string name="recaptcha_site_key" translatable="false">6Ld_kBAuAAAAALqmLa9akHUL_gDHOMm_76RUXRc2</string>
+    <string name="google_app_id" translatable="false">1:203039061226:android:f5c4d77ed852be622b9393</string>
+    <string name="google_api_key" translatable="false">AIzaSyAsBdsu1vYK0WfOlK8dGChfyo1BaQWMvuc</string>
+    <string name="project_id" translatable="false">gen-lang-client-0310222616</string>
+    <string name="gcm_defaultSenderId" translatable="false">203039061226</string>
+    <string name="google_storage_bucket" translatable="false">gen-lang-client-0310222616.firebasestorage.app</string>
+    <string name="default_web_client_id" translatable="false">203039061226-l2ibbt797t0ibnbse4r5bt3muigvb68i.apps.googleusercontent.com</string>
 </resources>

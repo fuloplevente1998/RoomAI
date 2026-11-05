@@ -3,22 +3,46 @@ package com.example.data
 import android.content.Context
 import android.graphics.Bitmap
 import com.example.R
+import com.example.model.ChatMessage
 import com.example.model.RoomCatalog
 import com.example.util.ImageUtils
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
- * Repository managing saved interior design projects locally via Room,
- * structured so a future CloudStorageService (Firebase Storage + Firestore) can sync seamlessly.
+ * Full SQL-backed Repository coordinating all 4 Room SQLite tables:
+ * 1. `design_projects` (Saved Interior Design Projects)
+ * 2. `billing_transactions` (Google Play Billing & Sandbox Transactions)
+ * 3. `assistant_chat_messages` (RoomAI Assistant Chat History)
+ * 4. `ai_generation_logs` (Gemini AI Performance & Telemetry Logs)
  */
 class DesignRepository(
     private val context: Context,
-    private val dao: DesignProjectDao
+    private val projectDao: DesignProjectDao,
+    private val chatHistoryDao: ChatHistoryDao,
+    private val aiLogDao: AiGenerationLogDao,
+    private val billingDao: BillingTransactionDao
 ) {
-    val allProjects: Flow<List<DesignProjectEntity>> = dao.getAllProjects()
+    val allProjects: Flow<List<DesignProjectEntity>> = projectDao.getAllProjects()
 
-    suspend fun ensureSeedSampleProjectsLoaded() {
-        if (dao.getProjectCount() == 0) {
+    val persistedChatMessages: Flow<List<ChatMessage>> = chatHistoryDao.getAllMessages().map { list ->
+        list.map { entity ->
+            ChatMessage(
+                id = entity.messageUuid,
+                isUser = entity.isUser,
+                text = entity.text,
+                timestamp = entity.timestamp,
+                isStreaming = false
+            )
+        }
+    }
+
+    val recentAiLogs: Flow<List<AiGenerationLogEntity>> = aiLogDao.getRecentLogs()
+
+    val billingTransactions: Flow<List<BillingTransactionEntity>> = billingDao.getAllTransactions()
+
+    suspend fun ensureSeedDataLoaded() {
+        if (projectDao.getProjectCount() == 0) {
             val sample1 = DesignProjectEntity(
                 title = "Skandináv-Japandi Nappali",
                 roomType = "Nappali (Living Room)",
@@ -64,9 +88,20 @@ class DesignRepository(
                 isDemoSample = true,
                 createdAt = System.currentTimeMillis() - 3_600_000L * 48
             )
-            dao.insertProject(sample1)
-            dao.insertProject(sample2)
-            dao.insertProject(sample3)
+            projectDao.insertProject(sample1)
+            projectDao.insertProject(sample2)
+            projectDao.insertProject(sample3)
+        }
+
+        if (chatHistoryDao.getMessageCount() == 0) {
+            chatHistoryDao.insertMessage(
+                ChatHistoryEntity(
+                    messageUuid = "welcome_initial",
+                    isUser = false,
+                    text = "Üdvözöllek! Én a **RoomAI Assistant** vagyok, a személyes AI lakberendeződ és belsőépítész tanácsadód.\n\nMinden üzenetünk automatikusan mentésre kerül a helyi Room SQLite adatbázisba. Kérdezz bátran a feltöltött szobádról, színpalettákról, bútorválasztásról vagy költséghatékony felújítási ötletekről!",
+                    styleContext = "Skandináv"
+                )
+            )
         }
     }
 
@@ -102,15 +137,59 @@ class DesignRepository(
             isDemoSample = isDemoSample,
             createdAt = System.currentTimeMillis()
         )
-        val newId = dao.insertProject(entity)
+        val newId = projectDao.insertProject(entity)
         return entity.copy(id = newId)
     }
 
-    suspend fun deleteProject(id: Long) {
-        dao.deleteProjectById(id)
+    suspend fun insertChatMessage(message: ChatMessage, styleContext: String) {
+        chatHistoryDao.insertMessage(
+            ChatHistoryEntity(
+                messageUuid = message.id,
+                isUser = message.isUser,
+                text = message.text,
+                styleContext = styleContext,
+                timestamp = message.timestamp
+            )
+        )
     }
 
-    suspend fun clearAllProjects() {
-        dao.deleteAllProjects()
+    suspend fun updateChatMessageText(uuid: String, updatedText: String) {
+        chatHistoryDao.updateMessageByUuid(uuid, updatedText)
+    }
+
+    suspend fun clearChatHistory() {
+        chatHistoryDao.clearChatHistory()
+        ensureSeedDataLoaded()
+    }
+
+    suspend fun logAiOperation(
+        operationType: String,
+        modelName: String,
+        styleNameHu: String,
+        durationMs: Long,
+        isSuccess: Boolean,
+        statusNote: String
+    ) {
+        aiLogDao.insertLog(
+            AiGenerationLogEntity(
+                operationType = operationType,
+                modelName = modelName,
+                styleNameHu = styleNameHu,
+                durationMs = durationMs,
+                isSuccess = isSuccess,
+                statusNote = statusNote
+            )
+        )
+    }
+
+    suspend fun deleteProject(id: Long) {
+        projectDao.deleteProjectById(id)
+    }
+
+    suspend fun clearAllSqlTables() {
+        projectDao.deleteAllProjects()
+        chatHistoryDao.clearChatHistory()
+        aiLogDao.clearLogs()
+        billingDao.clearAllTransactions()
     }
 }

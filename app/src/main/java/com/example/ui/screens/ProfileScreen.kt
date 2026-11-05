@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +21,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,7 +46,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -56,14 +62,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.AiGenerationLogEntity
+import com.example.data.BillingTransactionEntity
 import com.example.data.UserProfileState
 import com.example.model.AppLanguage
+import com.example.model.ThemePreference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun ProfileScreen(
     userProfile: UserProfileState,
     savedProjectCount: Int,
+    chatMessageCount: Int,
+    billingTransactions: List<BillingTransactionEntity>,
+    aiGenerationLogs: List<AiGenerationLogEntity>,
     onOpenSubscription: () -> Unit,
+    onSelectThemePreference: (ThemePreference) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
     onUpdateProfile: (String, String) -> Unit,
     onDeleteAccount: () -> Unit,
@@ -74,6 +90,7 @@ fun ProfileScreen(
     var showTermsDialog by remember { mutableStateOf(false) }
     var showContactDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("MM.dd. HH:mm:ss", Locale("hu", "HU")) }
 
     Box(
         modifier = modifier
@@ -90,7 +107,7 @@ fun ProfileScreen(
         ) {
             item {
                 Text(
-                    text = "Profil és Beállítások",
+                    text = "Profil, Téma és SQL Motor",
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -167,7 +184,111 @@ fun ProfileScreen(
                 }
             }
 
-            // 2. Subscription Status & AI Generation Usage Card
+            // 2. Megjelenési Téma Választó (Elegáns Világos Bézs / Elegáns Sötét Fekete-Törtfehér / Rendszer)
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Megjelenési Téma (Világos & Sötét Mód)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Elegáns bézs, fekete, törtfehér és arany színharmónia",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        ThemePreference.entries.forEach { themePref ->
+                            val isSelected = userProfile.themePreference == themePref
+                            val icon = when (themePref) {
+                                ThemePreference.LIGHT -> Icons.Default.LightMode
+                                ThemePreference.DARK -> Icons.Default.DarkMode
+                                ThemePreference.SYSTEM -> Icons.Default.BrightnessAuto
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                },
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { onSelectThemePreference(themePref) }
+                                    .testTag("theme_option_${themePref.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = themePref.labelHu,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = themePref.subtitleHu,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Aktív",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Subscription Status & Google Play Billing Entry Card
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -190,7 +311,7 @@ fun ProfileScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Előfizetés és AI Generálási Keret",
+                                    text = "Google Play Előfizetés & AI Keret",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -199,12 +320,11 @@ fun ProfileScreen(
                                 onClick = onOpenSubscription,
                                 modifier = Modifier.testTag("profile_manage_subscription_btn")
                             ) {
-                                Text(if (userProfile.isPremium) "Csomag váltása" else "Frissítés PRO-ra")
+                                Text(if (userProfile.isPremium) "Play Billing Kezelés" else "Vásárlás / Teszt")
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Aktuális csomag: ${userProfile.subscriptionPlan.titleHu} (${userProfile.subscriptionPlan.priceHu})",
                             style = MaterialTheme.typography.bodyMedium,
@@ -214,7 +334,7 @@ fun ProfileScreen(
 
                         if (userProfile.isPremium) {
                             Text(
-                                text = "Eddig elvégzett AI képgenerálások: ${userProfile.generationsUsedCount} db (Korlátlan PRO hozzáférés aktív)",
+                                text = "Eddig elvégzett AI képgenerálások: ${userProfile.generationsUsedCount} db (PRO korlátlan hozzáférés aktív)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
@@ -241,7 +361,96 @@ fun ProfileScreen(
                 }
             }
 
-            // 3. Language Selection (Hungarian default, structured for EN & DE)
+            // 4. Natív Room SQLite Adatbázis Diagnosztika (4 élő SQL tábla)
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Storage,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Natív Room SQLite Adatbázis Motor",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Adatbázis fájl: roomai_projects.db (Verzió: 2)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SqlTableStatPill(
+                                tableName = "design_projects",
+                                count = savedProjectCount,
+                                label = "Mentett Terv",
+                                modifier = Modifier.weight(1f)
+                            )
+                            SqlTableStatPill(
+                                tableName = "billing_transactions",
+                                count = billingTransactions.size,
+                                label = "Play Tranzakció",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SqlTableStatPill(
+                                tableName = "assistant_chat",
+                                count = chatMessageCount,
+                                label = "Chat Üzenet",
+                                modifier = Modifier.weight(1f)
+                            )
+                            SqlTableStatPill(
+                                tableName = "ai_generation_logs",
+                                count = aiGenerationLogs.size,
+                                label = "AI Telemetria",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        if (aiGenerationLogs.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Legutóbbi SQL AI naplóbejegyzések:",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            aiGenerationLogs.take(3).forEach { log ->
+                                Text(
+                                    text = "• [${dateFormat.format(Date(log.timestamp))}] ${log.operationType} (${log.modelName}) – ${log.durationMs} ms – ${log.statusNote}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. Language Selection
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -264,13 +473,7 @@ fun ProfileScreen(
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Alapértelmezett nyelv: Magyar. A szöveges erőforrások angol (EN) és német (DE) lokalizációra strukturálva.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -293,7 +496,7 @@ fun ProfileScreen(
                 }
             }
 
-            // 4. Legal, Privacy, Terms, Contact & Delete Account
+            // 6. Legal, Privacy, Terms, Contact & Delete Account
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -335,8 +538,8 @@ fun ProfileScreen(
                         )
                         ProfileMenuRow(
                             icon = Icons.Default.DeleteForever,
-                            title = "Fiók és helyi adatok törlése",
-                            subtitle = "Minden mentett szobaterv és beállítás végleges eltávolítása",
+                            title = "Fiók és SQL táblák teljes törlése",
+                            subtitle = "Minden mentett szobaterv, tranzakció és beállítás visszaállítása",
                             tint = MaterialTheme.colorScheme.error,
                             onClick = { showDeleteConfirmDialog = true }
                         )
@@ -346,7 +549,6 @@ fun ProfileScreen(
         }
     }
 
-    // Dialogs
     if (showEditProfileDialog) {
         var nameInput by remember { mutableStateOf(userProfile.displayName) }
         var emailInput by remember { mutableStateOf(userProfile.email) }
@@ -396,7 +598,7 @@ fun ProfileScreen(
                     "A RoomAI kiemelten kezeli a felhasználók adatbiztonságát:\n\n" +
                         "• A szobafotók feltöltése kizárólag a felhasználó kifejezett kezdeményezésére történik.\n" +
                         "• A képeket a Google Firebase AI Logic (Gemini API) dolgozza fel App Check védelem alatt.\n" +
-                        "• A generált látványtervek a készülék belső tárhelyén kerülnek mentésre, és bármikor egyetlen érintéssel törölhetők."
+                        "• A generált látványtervek és tranzakciós adatok a készülék helyi Room SQLite adatbázisában (`roomai_projects.db`) kerülnek mentésre."
                 )
             },
             confirmButton = {
@@ -414,8 +616,8 @@ fun ProfileScreen(
             text = {
                 Text(
                     "1. A RoomAI által generált képek mesterséges intelligenciával készült belsőépítészeti látványtervek.\n\n" +
-                        "2. A fényképek alapján becsült szobaméretek tájékoztató jellegű vizuális becslések, kivitelezés előtt szakember általi helyszíni felmérés szükséges.\n\n" +
-                        "3. A jelenlegi prototípus verzióban az előfizetési rendszer szimulált, valódi pénzügyi tranzakció nem történik."
+                        "2. A fényképek alapján becsült szobaméretek tájékoztató jellegű vizuális becslések.\n\n" +
+                        "3. Az előfizetések a Google Play Billing v7.1.1 rendszeren és a beépített Sandbox tesztpénztáron keresztül tesztelhetők."
                 )
             },
             confirmButton = {
@@ -449,9 +651,9 @@ fun ProfileScreen(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Fiók és adatok törlése") },
+            title = { Text("Fiók és SQL táblák törlése") },
             text = {
-                Text("Biztosan törölni szeretnéd a profilbeállításaidat és az összes saját mentett látványtervet?")
+                Text("Biztosan törölni szeretnéd a profilbeállításaidat és az összes Room SQLite adatbázis táblát?")
             },
             confirmButton = {
                 Button(
@@ -470,6 +672,39 @@ fun ProfileScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SqlTableStatPill(
+    tableName: String,
+    count: Int,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "$count rekord",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "SQL: $tableName",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.example.viewmodel
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -10,9 +11,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.R
+import com.example.data.AiGenerationLogEntity
+import com.example.data.BillingTransactionEntity
 import com.example.data.DesignProjectEntity
 import com.example.data.DesignRepository
 import com.example.data.GeminiRoomAiService
+import com.example.data.PlayBillingConnectionState
+import com.example.data.PlayBillingManager
 import com.example.data.RoomAiDatabase
 import com.example.data.UserPreferencesRepository
 import com.example.data.UserProfileState
@@ -26,6 +31,7 @@ import com.example.model.InteriorStyle
 import com.example.model.RoomAnalysis
 import com.example.model.RoomCatalog
 import com.example.model.SubscriptionPlan
+import com.example.model.ThemePreference
 import com.example.util.ImageUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -85,6 +91,7 @@ class RoomAiViewModel(
     private val appContext: Context,
     private val designRepository: DesignRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val playBillingManager: PlayBillingManager,
     private val aiService: GeminiRoomAiService
 ) : ViewModel() {
 
@@ -105,14 +112,24 @@ class RoomAiViewModel(
             initialValue = UserProfileState()
         )
 
-    private val _chatMessages = MutableStateFlow(
-        listOf(
-            ChatMessage(
-                isUser = false,
-                text = "Üdvözöllek! Én a **RoomAI Assistant** vagyok, a személyes AI lakberendeződ és belsőépítész tanácsadód.\n\nKérdezz bátran a feltöltött szobádról, színpalettákról, bútorválasztásról, tértágító trükkökről vagy költséghatékony felújítási ötletekről!"
-            )
+    val billingConnectionState: StateFlow<PlayBillingConnectionState> =
+        playBillingManager.connectionState
+
+    val billingTransactions: StateFlow<List<BillingTransactionEntity>> =
+        designRepository.billingTransactions.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList()
         )
-    )
+
+    val aiGenerationLogs: StateFlow<List<AiGenerationLogEntity>> =
+        designRepository.recentAiLogs.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList()
+        )
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     private val _isAssistantThinking = MutableStateFlow(false)
@@ -120,7 +137,12 @@ class RoomAiViewModel(
 
     init {
         viewModelScope.launch {
-            designRepository.ensureSeedSampleProjectsLoaded()
+            designRepository.ensureSeedDataLoaded()
+            designRepository.persistedChatMessages.collect { sqlMessages ->
+                if (!_isAssistantThinking.value) {
+                    _chatMessages.value = sqlMessages
+                }
+            }
         }
     }
 
@@ -171,10 +193,6 @@ class RoomAiViewModel(
         }
     }
 
-    /**
-     * Loads the bundled sample before-room photograph so the user can test either
-     * real Gemini AI generation on the sample room or explore the interactive demo mode.
-     */
     fun loadSampleRoomPhotograph(runRealAiAnalysis: Boolean = false) {
         viewModelScope.launch {
             _studioState.update { it.copy(isCompressingPhoto = true, uploadError = null) }
@@ -212,7 +230,7 @@ class RoomAiViewModel(
     }
 
     /**
-     * Runs real Gemini AI Room Analysis on the currently uploaded photograph.
+     * Runs real Gemini AI Room Analysis on the currently uploaded photograph and logs SQL telemetry.
      */
     fun analyzeCurrentRoom() {
         val currentBitmap = _studioState.value.uploadedBitmap
@@ -224,15 +242,33 @@ class RoomAiViewModel(
         }
 
         viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
             _studioState.update { it.copy(analysisState = AnalysisUiState.Loading) }
             val result = aiService.analyzeRoomPhotograph(currentBitmap)
+            val elapsed = System.currentTimeMillis() - startTime
             result.fold(
                 onSuccess = { analysis ->
+                    designRepository.logAiOperation(
+                        operationType = "ROOM_ANALYSIS",
+                        modelName = "gemini-3.8-flash",
+                        styleNameHu = _studioState.value.selectedStyle.nameHu,
+                        durationMs = elapsed,
+                        isSuccess = true,
+                        statusNote = "Elemzett helyiség: ${analysis.roomType}"
+                    )
                     _studioState.update {
                         it.copy(analysisState = AnalysisUiState.Success(analysis))
                     }
                 },
                 onFailure = { error ->
+                    designRepository.logAiOperation(
+                        operationType = "ROOM_ANALYSIS",
+                        modelName = "gemini-3.8-flash",
+                        styleNameHu = _studioState.value.selectedStyle.nameHu,
+                        durationMs = elapsed,
+                        isSuccess = false,
+                        statusNote = error.localizedMessage ?: "Elemzési hiba"
+                    )
                     _studioState.update {
                         it.copy(
                             analysisState = AnalysisUiState.Error(
@@ -287,7 +323,7 @@ class RoomAiViewModel(
 
     /**
      * Generates a redesigned room image using Google's Gemini image generation model
-     * (`gemini-nano-banana-2.1`). Never substitutes a failed API call with fake output.
+     * (`gemini-nano-banana-2.1`) and saves the project + telemetry into Room SQL.
      */
     fun generateRoomRedesign(onNavigateToComparison: () -> Unit) {
         val state = _studioState.value
@@ -306,7 +342,7 @@ class RoomAiViewModel(
             _studioState.update {
                 it.copy(
                     generationState = GenerationUiState.Error(
-                        "Elérted az ingyenes csomag 2 AI képgenerálási limitjét. Válts RoomAI Prémiumra a korlátlan tervezéshez, vagy próbáld ki a Bemutató (Demo) módot!"
+                        "Elérted az ingyenes csomag 2 AI képgenerálási limitjét. Válts RoomAI Prémiumra a Google Play Billing felületen, vagy próbáld ki a Bemutató (Demo) módot!"
                     )
                 )
             }
@@ -314,6 +350,7 @@ class RoomAiViewModel(
         }
 
         viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
             _studioState.update {
                 it.copy(
                     generationState = GenerationUiState.Loading(
@@ -322,7 +359,6 @@ class RoomAiViewModel(
                 )
             }
 
-            // Ensure room analysis exists or run it if idle
             val analysisResult = (state.analysisState as? AnalysisUiState.Success)?.analysis
 
             val result = aiService.generateRedesignedRoomImage(
@@ -336,6 +372,7 @@ class RoomAiViewModel(
                 customInstructions = state.customInstructions,
                 roomAnalysis = analysisResult
             )
+            val elapsed = System.currentTimeMillis() - startTime
 
             result.fold(
                 onSuccess = { generatedBitmap ->
@@ -358,6 +395,15 @@ class RoomAiViewModel(
                         isDemoSample = false
                     )
 
+                    designRepository.logAiOperation(
+                        operationType = "IMAGE_GENERATION",
+                        modelName = "gemini-nano-banana-2.1",
+                        styleNameHu = state.selectedStyle.nameHu,
+                        durationMs = elapsed,
+                        isSuccess = true,
+                        statusNote = "Mentve SQL-be (Projekt ID: #${savedEntity.id})"
+                    )
+
                     _studioState.update {
                         it.copy(
                             generationState = GenerationUiState.Success(
@@ -376,6 +422,14 @@ class RoomAiViewModel(
                     onNavigateToComparison()
                 },
                 onFailure = { err ->
+                    designRepository.logAiOperation(
+                        operationType = "IMAGE_GENERATION",
+                        modelName = "gemini-nano-banana-2.1",
+                        styleNameHu = state.selectedStyle.nameHu,
+                        durationMs = elapsed,
+                        isSuccess = false,
+                        statusNote = err.localizedMessage ?: "Képgenerálási hiba"
+                    )
                     _studioState.update {
                         it.copy(
                             generationState = GenerationUiState.Error(
@@ -388,10 +442,6 @@ class RoomAiViewModel(
         }
     }
 
-    /**
-     * Explicit Prototype Demo workflow: clearly labeled as Sample/Demo result so users can
-     * test the entire Before/After Comparison, Gallery, Save and Share flow immediately.
-     */
     fun launchInteractiveDemoShowcase(onNavigateToComparison: () -> Unit) {
         viewModelScope.launch {
             val beforeBmp = ImageUtils.loadDrawableBitmap(
@@ -425,9 +475,6 @@ class RoomAiViewModel(
         }
     }
 
-    /**
-     * Opens any saved project from My Designs / Gallery into the Before/After Comparison screen.
-     */
     fun openSavedProjectInComparison(
         project: DesignProjectEntity,
         onReadyToNavigate: () -> Unit
@@ -484,27 +531,31 @@ class RoomAiViewModel(
     fun deleteSavedProject(projectId: Long) {
         viewModelScope.launch {
             designRepository.deleteProject(projectId)
-            showSnackbar("A terv törölve lett a saját galériából.")
+            showSnackbar("A terv törölve lett a Room SQLite adatbázisból.")
         }
     }
 
     /**
-     * Sends a message in the RoomAI Assistant screen and streams the response from Gemini 3.8 Flash.
+     * Sends a message in RoomAI Assistant, saves both user and streaming AI messages into SQL.
      */
     fun sendAssistantMessage(userText: String) {
         val trimmed = userText.trim()
         if (trimmed.isEmpty() || _isAssistantThinking.value) return
 
+        val state = _studioState.value
         val userMsg = ChatMessage(isUser = true, text = trimmed)
         val placeholderAiMsg = ChatMessage(isUser = false, text = "", isStreaming = true)
 
         _chatMessages.update { it + userMsg + placeholderAiMsg }
         _isAssistantThinking.value = true
 
-        val state = _studioState.value
         val currentAnalysis = (state.analysisState as? AnalysisUiState.Success)?.analysis
 
         viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
+            designRepository.insertChatMessage(userMsg, state.selectedStyle.nameHu)
+            designRepository.insertChatMessage(placeholderAiMsg, state.selectedStyle.nameHu)
+
             val accumulated = StringBuilder()
             try {
                 withTimeout(60_000L) {
@@ -530,6 +581,15 @@ class RoomAiViewModel(
                 val finalReply = accumulated.toString().ifBlank {
                     "Sajnálom, a modell nem küldött szöveges választ. Kérjük, próbáld újra!"
                 }
+                designRepository.updateChatMessageText(placeholderAiMsg.id, finalReply)
+                designRepository.logAiOperation(
+                    operationType = "ASSISTANT_CHAT",
+                    modelName = "gemini-3.8-flash",
+                    styleNameHu = state.selectedStyle.nameHu,
+                    durationMs = System.currentTimeMillis() - startTime,
+                    isSuccess = true,
+                    statusNote = "Asszisztens válasz elmentve SQL-be"
+                )
                 _chatMessages.update { list ->
                     list.map { msg ->
                         if (msg.id == placeholderAiMsg.id) {
@@ -539,13 +599,12 @@ class RoomAiViewModel(
                 }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Assistant stream timed out", e)
+                val timeoutText = "A válaszadás időtúllépés miatt megszakadt (60 mp). Kérjük, próbáld újra!"
+                designRepository.updateChatMessageText(placeholderAiMsg.id, timeoutText)
                 _chatMessages.update { list ->
                     list.map { msg ->
                         if (msg.id == placeholderAiMsg.id) {
-                            msg.copy(
-                                text = "A válaszadás időtúllépés miatt megszakadt (60 mp). Kérjük, próbáld újra!",
-                                isStreaming = false
-                            )
+                            msg.copy(text = timeoutText, isStreaming = false)
                         } else msg
                     }
                 }
@@ -553,13 +612,12 @@ class RoomAiViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Assistant stream failed", e)
+                val errText = "Hiba történt a Gemini AI válasz generálásakor: ${e.localizedMessage ?: "Ismeretlen hiba"}"
+                designRepository.updateChatMessageText(placeholderAiMsg.id, errText)
                 _chatMessages.update { list ->
                     list.map { msg ->
                         if (msg.id == placeholderAiMsg.id) {
-                            msg.copy(
-                                text = "Hiba történt a Gemini AI válasz generálásakor: ${e.localizedMessage ?: "Ismeretlen hiba"}",
-                                isStreaming = false
-                            )
+                            msg.copy(text = errText, isStreaming = false)
                         } else msg
                     }
                 }
@@ -569,14 +627,59 @@ class RoomAiViewModel(
         }
     }
 
-    /**
-     * Simulated subscription plan selection (Clearly labeled as prototype simulation, no real money charged).
-     */
-    fun selectSubscriptionPlan(plan: SubscriptionPlan) {
+    fun clearAssistantHistory() {
         viewModelScope.launch {
-            userPreferencesRepository.setSubscriptionPlan(plan)
-            showSnackbar("Szimulált előfizetési csomag frissítve: ${plan.titleHu} (Prototípus mód – nem történt valódi terhelés).")
+            designRepository.clearChatHistory()
+            showSnackbar("Asszisztens csevegési előzmények törölve az SQL adatbázisból.")
         }
+    }
+
+    /**
+     * Initiates native Google Play Billing flow if Play Store SKU is available,
+     * otherwise returns false so the UI opens the interactive Google Play Test Purchase Sheet.
+     */
+    fun tryStartNativePlayBilling(activity: Activity, plan: SubscriptionPlan): Boolean {
+        return playBillingManager.tryLaunchNativeBillingFlow(activity, plan)
+    }
+
+    /**
+     * Executes an interactive Google Play Sandbox purchase (Test Card / GPay / Declined Card)
+     * and writes the receipt to Room SQL (`billing_transactions`).
+     */
+    fun completePlaySandboxPurchase(
+        plan: SubscriptionPlan,
+        paymentMethodLabel: String,
+        simulateDecline: Boolean,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = playBillingManager.executeSandboxPlayPurchase(
+                plan = plan,
+                paymentMethodLabel = paymentMethodLabel,
+                simulateDecline = simulateDecline
+            )
+            result.fold(
+                onSuccess = { tx ->
+                    showSnackbar("Google Play Sikeres Vásárlás! Rendelésszám: ${tx.orderId} (${tx.planTitleHu})")
+                    onSuccess()
+                },
+                onFailure = { err ->
+                    showSnackbar(err.localizedMessage ?: "Sikertelen fizetési tranzakció.")
+                }
+            )
+        }
+    }
+
+    fun refundBillingTransaction(transaction: BillingTransactionEntity) {
+        viewModelScope.launch {
+            playBillingManager.refundOrCancelTransaction(transaction)
+            showSnackbar("Tranzakció visszatérítve és előfizetés lemondva (${transaction.orderId}).")
+        }
+    }
+
+    fun refreshPlayBillingStatus() {
+        playBillingManager.startPlayBillingConnection()
+        showSnackbar("Google Play Billing kapcsolat és vásárlások szinkronizálva.")
     }
 
     fun selectLanguage(language: AppLanguage) {
@@ -584,6 +687,23 @@ class RoomAiViewModel(
             userPreferencesRepository.setLanguage(language)
             showSnackbar("Nyelvi beállítás mentve: ${language.label}")
         }
+    }
+
+    fun selectThemePreference(themePreference: ThemePreference) {
+        viewModelScope.launch {
+            userPreferencesRepository.setThemePreference(themePreference)
+            showSnackbar("Megjelenési téma: ${themePreference.labelHu}")
+        }
+    }
+
+    fun toggleLightDarkTheme() {
+        val current = userProfile.value.themePreference
+        val next = if (current == ThemePreference.DARK) {
+            ThemePreference.LIGHT
+        } else {
+            ThemePreference.DARK
+        }
+        selectThemePreference(next)
     }
 
     fun updateUserProfile(name: String, email: String) {
@@ -596,10 +716,10 @@ class RoomAiViewModel(
     fun deleteAccountAndLocalData() {
         viewModelScope.launch {
             userPreferencesRepository.resetAccountData()
-            designRepository.clearAllProjects()
-            designRepository.ensureSeedSampleProjectsLoaded()
+            designRepository.clearAllSqlTables()
+            designRepository.ensureSeedDataLoaded()
             removeUploadedPhoto()
-            showSnackbar("Fiókadatok és saját tervek sikeresen törölve.")
+            showSnackbar("Minden SQL tábla és fiókadat sikeresen alaphelyzetbe állítva.")
         }
     }
 
@@ -608,13 +728,25 @@ class RoomAiViewModel(
             initializer {
                 val appContext = context.applicationContext
                 val db = RoomAiDatabase.getInstance(appContext)
-                val designRepo = DesignRepository(appContext, db.designProjectDao())
                 val prefsRepo = UserPreferencesRepository(appContext)
-                val aiService = GeminiRoomAiService()
+                val designRepo = DesignRepository(
+                    context = appContext,
+                    projectDao = db.designProjectDao(),
+                    chatHistoryDao = db.chatHistoryDao(),
+                    aiLogDao = db.aiGenerationLogDao(),
+                    billingDao = db.billingTransactionDao()
+                )
+                val billingManager = PlayBillingManager(
+                    context = appContext,
+                    billingTransactionDao = db.billingTransactionDao(),
+                    userPreferencesRepository = prefsRepo
+                )
+                val aiService = GeminiRoomAiService(appContext)
                 RoomAiViewModel(
                     appContext = appContext,
                     designRepository = designRepo,
                     userPreferencesRepository = prefsRepo,
+                    playBillingManager = billingManager,
                     aiService = aiService
                 )
             }

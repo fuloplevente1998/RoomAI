@@ -29,7 +29,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Compare
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KingBed
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -82,6 +84,7 @@ fun HomeScreen(
     onOpenAllProjects: () -> Unit,
     onOpenPremium: () -> Unit,
     onOpenAssistant: () -> Unit,
+    onToggleTheme: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -102,7 +105,8 @@ fun HomeScreen(
                 HomeTopHeader(
                     userProfile = userProfile,
                     onOpenPremium = onOpenPremium,
-                    onOpenAssistant = onOpenAssistant
+                    onOpenAssistant = onOpenAssistant,
+                    onToggleTheme = onToggleTheme
                 )
             }
 
@@ -160,8 +164,10 @@ fun HomeScreen(
 private fun HomeTopHeader(
     userProfile: UserProfileState,
     onOpenPremium: () -> Unit,
-    onOpenAssistant: () -> Unit
+    onOpenAssistant: () -> Unit,
+    onToggleTheme: () -> Unit
 ) {
+    val isDarkTheme = userProfile.themePreference == com.example.model.ThemePreference.DARK
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -219,6 +225,32 @@ private fun HomeTopHeader(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
+                    onClick = onToggleTheme,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("home_theme_toggle_button")
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline
+                        ),
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                contentDescription = "Téma váltása (Világos / Sötét mód)",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
                     onClick = onOpenAssistant,
                     modifier = Modifier
                         .size(48.dp)
@@ -244,7 +276,7 @@ private fun HomeTopHeader(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
                 Surface(
                     shape = RoundedCornerShape(50),
@@ -267,7 +299,7 @@ private fun HomeTopHeader(
                         Text(
                             text = if (userProfile.isPremium) "PRO Aktív" else "PRO",
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSecondary,
                             fontWeight = FontWeight.Bold
                         )
                     }

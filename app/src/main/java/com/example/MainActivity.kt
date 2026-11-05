@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -53,6 +54,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.model.ThemePreference
 import com.example.ui.screens.AssistantScreen
 import com.example.ui.screens.ComparisonScreen
 import com.example.ui.screens.DesignStudioScreen
@@ -123,16 +125,9 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // STEP 2: Initialize UI
+        // STEP 2: Initialize UI with dynamic ThemePreference support
         setContent {
-            RoomAITheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    RoomAiAppRoot()
-                }
-            }
+            RoomAiAppRoot()
         }
     }
 }
@@ -149,28 +144,107 @@ fun RoomAiAppRoot() {
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isAssistantThinking by viewModel.isAssistantThinking.collectAsStateWithLifecycle()
+    val billingConnectionState by viewModel.billingConnectionState.collectAsStateWithLifecycle()
+    val billingTransactions by viewModel.billingTransactions.collectAsStateWithLifecycle()
+    val aiGenerationLogs by viewModel.aiGenerationLogs.collectAsStateWithLifecycle()
 
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: RoomRoutes.ROUTE_HOME
-
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(studioState.snackbarMessage) {
-        studioState.snackbarMessage?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
-            viewModel.clearSnackbarMessage()
-        }
+    val isSystemDark = isSystemInDarkTheme()
+    val useDarkTheme = when (userProfile.themePreference) {
+        ThemePreference.LIGHT -> false
+        ThemePreference.DARK -> true
+        ThemePreference.SYSTEM -> isSystemDark
     }
 
-    // Android Photo Picker Launcher (Zero-permission compliant)
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.onPhotoSelected(uri)
-            if (currentRoute != RoomRoutes.ROUTE_DESIGN) {
-                navController.navigate(RoomRoutes.ROUTE_DESIGN) {
+    RoomAITheme(darkTheme = useDarkTheme) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            val navController = rememberNavController()
+            val navBackStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route ?: RoomRoutes.ROUTE_HOME
+
+            val snackbarHostState = remember { SnackbarHostState() }
+
+            LaunchedEffect(studioState.snackbarMessage) {
+                studioState.snackbarMessage?.let { msg ->
+                    snackbarHostState.showSnackbar(msg)
+                    viewModel.clearSnackbarMessage()
+                }
+            }
+
+            // Android Photo Picker Launcher (Zero-permission compliant)
+            val photoPickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.PickVisualMedia()
+            ) { uri: Uri? ->
+                if (uri != null) {
+                    viewModel.onPhotoSelected(uri)
+                    if (currentRoute != RoomRoutes.ROUTE_DESIGN) {
+                        navController.navigate(RoomRoutes.ROUTE_DESIGN) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                }
+            }
+
+            // Camera Capture Launcher & Runtime Permission Flow
+            var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+            val cameraTakePictureLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.TakePicture()
+            ) { success: Boolean ->
+                val capturedUri = pendingCameraUri
+                if (success && capturedUri != null) {
+                    viewModel.onPhotoSelected(capturedUri)
+                }
+            }
+
+            val cameraPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { isGranted: Boolean ->
+                if (isGranted) {
+                    try {
+                        val uri = ImageUtils.createCameraCaptureUri(context)
+                        pendingCameraUri = uri
+                        cameraTakePictureLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        viewModel.showSnackbar("Nem sikerült elindítani a kamerát: ${e.localizedMessage}")
+                    }
+                } else {
+                    viewModel.showSnackbar("A kamera engedély megtagadva. Választhatsz fotót a Galériából is!")
+                }
+            }
+
+            val triggerPhotoPicker: () -> Unit = {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            }
+
+            val triggerCameraCapture: () -> Unit = {
+                val hasPerm = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasPerm) {
+                    try {
+                        val uri = ImageUtils.createCameraCaptureUri(context)
+                        pendingCameraUri = uri
+                        cameraTakePictureLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        viewModel.showSnackbar("Nem sikerült elindítani a kamerát: ${e.localizedMessage}")
+                    }
+                } else {
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            }
+
+            val navigateToTab: (String) -> Unit = { targetRoute ->
+                navController.navigate(targetRoute) {
                     popUpTo(navController.graph.findStartDestination().id) {
                         saveState = true
                     }
@@ -178,229 +252,180 @@ fun RoomAiAppRoot() {
                     restoreState = true
                 }
             }
-        }
-    }
 
-    // Camera Capture Launcher & Runtime Permission Flow
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+            val showBottomBar = currentRoute in BOTTOM_NAV_TABS.map { it.route }
 
-    val cameraTakePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success: Boolean ->
-        val capturedUri = pendingCameraUri
-        if (success && capturedUri != null) {
-            viewModel.onPhotoSelected(capturedUri)
-        }
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            try {
-                val uri = ImageUtils.createCameraCaptureUri(context)
-                pendingCameraUri = uri
-                cameraTakePictureLauncher.launch(uri)
-            } catch (e: Exception) {
-                viewModel.showSnackbar("Nem sikerült elindítani a kamerát: ${e.localizedMessage}")
-            }
-        } else {
-            viewModel.showSnackbar("A kamera engedély megtagadva. Választhatsz fotót a Galériából is!")
-        }
-    }
-
-    val triggerPhotoPicker: () -> Unit = {
-        photoPickerLauncher.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-        )
-    }
-
-    val triggerCameraCapture: () -> Unit = {
-        val hasPerm = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasPerm) {
-            try {
-                val uri = ImageUtils.createCameraCaptureUri(context)
-                pendingCameraUri = uri
-                cameraTakePictureLauncher.launch(uri)
-            } catch (e: Exception) {
-                viewModel.showSnackbar("Nem sikerült elindítani a kamerát: ${e.localizedMessage}")
-            }
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    val navigateToTab: (String) -> Unit = { targetRoute ->
-        navController.navigate(targetRoute) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                saveState = true
-            }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
-
-    val showBottomBar = currentRoute in BOTTOM_NAV_TABS.map { it.route }
-
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
+            Scaffold(
+                contentWindowInsets = WindowInsets.safeDrawing,
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                bottomBar = {
+                    if (showBottomBar) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 8.dp
+                        ) {
+                            BOTTOM_NAV_TABS.forEach { tab ->
+                                val selected = currentRoute == tab.route
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { navigateToTab(tab.route) },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                            contentDescription = tab.labelHu
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.labelHu,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                    ),
+                                    modifier = Modifier.testTag(tab.testTag)
+                                )
+                            }
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                NavHost(
+                    navController = navController,
+                    startDestination = RoomRoutes.ROUTE_HOME,
+                    modifier = Modifier.padding(innerPadding)
                 ) {
-                    BOTTOM_NAV_TABS.forEach { tab ->
-                        val selected = currentRoute == tab.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navigateToTab(tab.route) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.labelHu
-                                )
+                    composable(RoomRoutes.ROUTE_HOME) {
+                        HomeScreen(
+                            userProfile = userProfile,
+                            recentProjects = savedProjects,
+                            onStartNewDesign = { navigateToTab(RoomRoutes.ROUTE_DESIGN) },
+                            onUploadPhotoClick = triggerPhotoPicker,
+                            onStyleClick = { style ->
+                                viewModel.selectStyle(style)
+                                navigateToTab(RoomRoutes.ROUTE_DESIGN)
                             },
-                            label = {
-                                Text(
-                                    text = tab.labelHu,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                                )
+                            onOpenProject = { project ->
+                                viewModel.openSavedProjectInComparison(project) {
+                                    navController.navigate(RoomRoutes.ROUTE_COMPARISON)
+                                }
                             },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                            ),
-                            modifier = Modifier.testTag(tab.testTag)
+                            onOpenAllProjects = { navigateToTab(RoomRoutes.ROUTE_MY_DESIGNS) },
+                            onOpenPremium = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) },
+                            onOpenAssistant = { navController.navigate(RoomRoutes.ROUTE_ASSISTANT) },
+                            onToggleTheme = { viewModel.toggleLightDarkTheme() }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_DESIGN) {
+                        DesignStudioScreen(
+                            studioState = studioState,
+                            userProfile = userProfile,
+                            onPickFromGallery = triggerPhotoPicker,
+                            onTakeCameraPhoto = triggerCameraCapture,
+                            onLoadSamplePhoto = { runLive -> viewModel.loadSampleRoomPhotograph(runLive) },
+                            onRemovePhoto = { viewModel.removeUploadedPhoto() },
+                            onRetryAnalysis = { viewModel.analyzeCurrentRoom() },
+                            onSelectStyle = { viewModel.selectStyle(it) },
+                            onSelectColorPalette = { viewModel.selectColorPalette(it) },
+                            onSelectBudget = { viewModel.selectBudget(it) },
+                            onSelectAtmosphere = { viewModel.selectAtmosphere(it) },
+                            onSelectDecorDensity = { viewModel.selectDecorDensity(it) },
+                            onToggleFurniturePref = { viewModel.toggleFurniturePreference(it) },
+                            onCustomInstructionsChange = { viewModel.updateCustomInstructions(it) },
+                            onAppendQuickInstruction = { viewModel.appendQuickInstruction(it) },
+                            onTransformRoom = {
+                                viewModel.generateRoomRedesign {
+                                    navController.navigate(RoomRoutes.ROUTE_COMPARISON)
+                                }
+                            },
+                            onLaunchDemoComparison = {
+                                viewModel.launchInteractiveDemoShowcase {
+                                    navController.navigate(RoomRoutes.ROUTE_COMPARISON)
+                                }
+                            },
+                            onOpenPremium = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_MY_DESIGNS) {
+                        MyDesignsScreen(
+                            projects = savedProjects,
+                            isPremium = userProfile.isPremium,
+                            onOpenProjectComparison = { project ->
+                                viewModel.openSavedProjectInComparison(project) {
+                                    navController.navigate(RoomRoutes.ROUTE_COMPARISON)
+                                }
+                            },
+                            onDeleteProject = { viewModel.deleteSavedProject(it) },
+                            onStartNewDesign = { navigateToTab(RoomRoutes.ROUTE_DESIGN) },
+                            onShowMessage = { viewModel.showSnackbar(it) }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_PROFILE) {
+                        ProfileScreen(
+                            userProfile = userProfile,
+                            savedProjectCount = savedProjects.size,
+                            chatMessageCount = chatMessages.size,
+                            billingTransactions = billingTransactions,
+                            aiGenerationLogs = aiGenerationLogs,
+                            onOpenSubscription = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) },
+                            onSelectThemePreference = { viewModel.selectThemePreference(it) },
+                            onSelectLanguage = { viewModel.selectLanguage(it) },
+                            onUpdateProfile = { name, email -> viewModel.updateUserProfile(name, email) },
+                            onDeleteAccount = { viewModel.deleteAccountAndLocalData() }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_COMPARISON) {
+                        ComparisonScreen(
+                            studioState = studioState,
+                            onBack = { navController.popBackStack() },
+                            onSaveToDevice = { viewModel.saveCurrentComparisonToDevice() },
+                            onShareImage = { viewModel.shareCurrentComparisonImage() },
+                            onCustomInstructionsChange = { viewModel.updateCustomInstructions(it) },
+                            onRegenerateWithAi = {
+                                viewModel.generateRoomRedesign {
+                                    // Stay on ComparisonScreen with newly generated image
+                                }
+                            }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_ASSISTANT) {
+                        AssistantScreen(
+                            studioState = studioState,
+                            messages = chatMessages,
+                            isThinking = isAssistantThinking,
+                            onSendMessage = { viewModel.sendAssistantMessage(it) },
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(RoomRoutes.ROUTE_SUBSCRIPTION) {
+                        SubscriptionScreen(
+                            userProfile = userProfile,
+                            billingConnectionState = billingConnectionState,
+                            transactions = billingTransactions,
+                            onTryNativePlayBilling = { act, plan ->
+                                viewModel.tryStartNativePlayBilling(act, plan)
+                            },
+                            onCompleteSandboxPurchase = { plan, methodLabel, decline ->
+                                viewModel.completePlaySandboxPurchase(plan, methodLabel, decline) {
+                                    // Purchase recorded in SQL; user can inspect receipt on screen
+                                }
+                            },
+                            onRefundTransaction = { tx -> viewModel.refundBillingTransaction(tx) },
+                            onRefreshBilling = { viewModel.refreshPlayBillingStatus() },
+                            onBack = { navController.popBackStack() }
                         )
                     }
                 }
-            }
-        }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = RoomRoutes.ROUTE_HOME,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(RoomRoutes.ROUTE_HOME) {
-                HomeScreen(
-                    userProfile = userProfile,
-                    recentProjects = savedProjects,
-                    onStartNewDesign = { navigateToTab(RoomRoutes.ROUTE_DESIGN) },
-                    onUploadPhotoClick = triggerPhotoPicker,
-                    onStyleClick = { style ->
-                        viewModel.selectStyle(style)
-                        navigateToTab(RoomRoutes.ROUTE_DESIGN)
-                    },
-                    onOpenProject = { project ->
-                        viewModel.openSavedProjectInComparison(project) {
-                            navController.navigate(RoomRoutes.ROUTE_COMPARISON)
-                        }
-                    },
-                    onOpenAllProjects = { navigateToTab(RoomRoutes.ROUTE_MY_DESIGNS) },
-                    onOpenPremium = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) },
-                    onOpenAssistant = { navController.navigate(RoomRoutes.ROUTE_ASSISTANT) }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_DESIGN) {
-                DesignStudioScreen(
-                    studioState = studioState,
-                    userProfile = userProfile,
-                    onPickFromGallery = triggerPhotoPicker,
-                    onTakeCameraPhoto = triggerCameraCapture,
-                    onLoadSamplePhoto = { runLive -> viewModel.loadSampleRoomPhotograph(runLive) },
-                    onRemovePhoto = { viewModel.removeUploadedPhoto() },
-                    onRetryAnalysis = { viewModel.analyzeCurrentRoom() },
-                    onSelectStyle = { viewModel.selectStyle(it) },
-                    onSelectColorPalette = { viewModel.selectColorPalette(it) },
-                    onSelectBudget = { viewModel.selectBudget(it) },
-                    onSelectAtmosphere = { viewModel.selectAtmosphere(it) },
-                    onSelectDecorDensity = { viewModel.selectDecorDensity(it) },
-                    onToggleFurniturePref = { viewModel.toggleFurniturePreference(it) },
-                    onCustomInstructionsChange = { viewModel.updateCustomInstructions(it) },
-                    onAppendQuickInstruction = { viewModel.appendQuickInstruction(it) },
-                    onTransformRoom = {
-                        viewModel.generateRoomRedesign {
-                            navController.navigate(RoomRoutes.ROUTE_COMPARISON)
-                        }
-                    },
-                    onLaunchDemoComparison = {
-                        viewModel.launchInteractiveDemoShowcase {
-                            navController.navigate(RoomRoutes.ROUTE_COMPARISON)
-                        }
-                    },
-                    onOpenPremium = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_MY_DESIGNS) {
-                MyDesignsScreen(
-                    projects = savedProjects,
-                    isPremium = userProfile.isPremium,
-                    onOpenProjectComparison = { project ->
-                        viewModel.openSavedProjectInComparison(project) {
-                            navController.navigate(RoomRoutes.ROUTE_COMPARISON)
-                        }
-                    },
-                    onDeleteProject = { viewModel.deleteSavedProject(it) },
-                    onStartNewDesign = { navigateToTab(RoomRoutes.ROUTE_DESIGN) },
-                    onShowMessage = { viewModel.showSnackbar(it) }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_PROFILE) {
-                ProfileScreen(
-                    userProfile = userProfile,
-                    savedProjectCount = savedProjects.size,
-                    onOpenSubscription = { navController.navigate(RoomRoutes.ROUTE_SUBSCRIPTION) },
-                    onSelectLanguage = { viewModel.selectLanguage(it) },
-                    onUpdateProfile = { name, email -> viewModel.updateUserProfile(name, email) },
-                    onDeleteAccount = { viewModel.deleteAccountAndLocalData() }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_COMPARISON) {
-                ComparisonScreen(
-                    studioState = studioState,
-                    onBack = { navController.popBackStack() },
-                    onSaveToDevice = { viewModel.saveCurrentComparisonToDevice() },
-                    onShareImage = { viewModel.shareCurrentComparisonImage() },
-                    onCustomInstructionsChange = { viewModel.updateCustomInstructions(it) },
-                    onRegenerateWithAi = {
-                        viewModel.generateRoomRedesign {
-                            // Stay on ComparisonScreen with newly generated image
-                        }
-                    }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_ASSISTANT) {
-                AssistantScreen(
-                    studioState = studioState,
-                    messages = chatMessages,
-                    isThinking = isAssistantThinking,
-                    onSendMessage = { viewModel.sendAssistantMessage(it) },
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(RoomRoutes.ROUTE_SUBSCRIPTION) {
-                SubscriptionScreen(
-                    userProfile = userProfile,
-                    onSelectPlan = { plan ->
-                        viewModel.selectSubscriptionPlan(plan)
-                        navController.popBackStack()
-                    },
-                    onBack = { navController.popBackStack() }
-                )
             }
         }
     }

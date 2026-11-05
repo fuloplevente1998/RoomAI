@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AppLanguage
 import com.example.model.SubscriptionPlan
+import com.example.model.ThemePreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -20,6 +21,7 @@ data class UserProfileState(
     val generationsUsedCount: Int = 0,
     val freeGenerationLimit: Int = 2,
     val selectedLanguage: AppLanguage = AppLanguage.HUNGARIAN,
+    val themePreference: ThemePreference = ThemePreference.LIGHT,
     val highResExportEnabled: Boolean = false,
     val hasConsentedPhotoUpload: Boolean = true
 ) {
@@ -41,6 +43,7 @@ class UserPreferencesRepository(private val context: Context) {
         val SUBSCRIPTION_PLAN = stringPreferencesKey("subscription_plan")
         val GENERATIONS_USED = intPreferencesKey("generations_used")
         val LANGUAGE = stringPreferencesKey("selected_language")
+        val THEME_PREFERENCE = stringPreferencesKey("theme_preference")
         val HIGH_RES_EXPORT = booleanPreferencesKey("high_res_export")
         val PHOTO_CONSENT = booleanPreferencesKey("photo_consent")
     }
@@ -50,6 +53,8 @@ class UserPreferencesRepository(private val context: Context) {
         val plan = SubscriptionPlan.entries.find { it.id == planId } ?: SubscriptionPlan.FREE
         val langCode = prefs[Keys.LANGUAGE] ?: AppLanguage.HUNGARIAN.code
         val lang = AppLanguage.entries.find { it.code == langCode } ?: AppLanguage.HUNGARIAN
+        val themeId = prefs[Keys.THEME_PREFERENCE] ?: ThemePreference.LIGHT.id
+        val themePref = ThemePreference.entries.find { it.id == themeId } ?: ThemePreference.LIGHT
 
         UserProfileState(
             displayName = prefs[Keys.DISPLAY_NAME] ?: "Kovács Anna",
@@ -57,6 +62,7 @@ class UserPreferencesRepository(private val context: Context) {
             subscriptionPlan = plan,
             generationsUsedCount = prefs[Keys.GENERATIONS_USED] ?: 0,
             selectedLanguage = lang,
+            themePreference = themePref,
             highResExportEnabled = prefs[Keys.HIGH_RES_EXPORT] ?: (plan != SubscriptionPlan.FREE),
             hasConsentedPhotoUpload = prefs[Keys.PHOTO_CONSENT] ?: true
         )
@@ -79,6 +85,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setLanguage(language: AppLanguage) {
         context.dataStore.edit { prefs ->
             prefs[Keys.LANGUAGE] = language.code
+        }
+    }
+
+    suspend fun setThemePreference(themePreference: ThemePreference) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.THEME_PREFERENCE] = themePreference.id
         }
     }
 

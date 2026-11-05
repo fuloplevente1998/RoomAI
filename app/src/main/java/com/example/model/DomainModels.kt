@@ -111,6 +111,28 @@ enum class AppLanguage(val code: String, val label: String, val statusLabel: Str
     GERMAN("de", "Deutsch (DE)", "Előkészítve")
 }
 
+enum class ThemePreference(
+    val id: String,
+    val labelHu: String,
+    val subtitleHu: String
+) {
+    LIGHT(
+        id = "light",
+        labelHu = "Elegáns Világos",
+        subtitleHu = "Meleg bézs, krém és törtfehér felületek fekete tipográfiával"
+    ),
+    DARK(
+        id = "dark",
+        labelHu = "Elegáns Sötét",
+        subtitleHu = "Mély obszidián fekete, törtfehér szövegek és arany részletek"
+    ),
+    SYSTEM(
+        id = "system",
+        labelHu = "Rendszer alapértelmezett",
+        subtitleHu = "Automatikus váltás a készülék beállítása szerint"
+    )
+}
+
 object RoomCatalog {
 
     val styles: List<InteriorStyle> = listOf(
