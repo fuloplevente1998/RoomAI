@@ -44,6 +44,15 @@ jobs:
       - name: Create debug signing key
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+      - name: Verify debug token is configured
+        env:
+          FIREBASE_APPCHECK_DEBUG_TOKEN: ${{ secrets.FIREBASE_APPCHECK_DEBUG_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_APPCHECK_DEBUG_TOKEN" ]; then
+            echo "::error::FIREBASE_APPCHECK_DEBUG_TOKEN GitHub Actions secret is missing"
+            exit 1
+          fi
+          echo "App Check debug token is configured (value hidden)."
       - name: Build debug APK
         env:
           FIREBASE_APPCHECK_DEBUG_TOKEN: ${{ secrets.FIREBASE_APPCHECK_DEBUG_TOKEN }}
