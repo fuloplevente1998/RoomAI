@@ -107,3 +107,13 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
     }
 }
+
+/** Reads the local debug-provider secret. Never include this in a release UI or logs. */
+fun readAppCheckDebugSecret(context: Context): String? {
+    if (!BuildConfig.DEBUG) return null
+    val app = ensureFirebaseInitialized(context)
+    val prefs = context.getSharedPreferences(
+        "$DEBUG_STORE_PREFIX${app.persistenceKey}", Context.MODE_PRIVATE
+    )
+    return prefs.getString(DEBUG_SECRET_KEY, null)?.takeIf { it.isNotBlank() }
+}
