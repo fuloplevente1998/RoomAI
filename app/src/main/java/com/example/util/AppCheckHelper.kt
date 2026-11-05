@@ -63,7 +63,8 @@ fun configureAppCheck(context: Context, intent: Intent?) {
 
         if (BuildConfig.DEBUG) {
             // 2. Debug: Read debug token from Intent extra
-            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+            val debugToken = BuildConfig.APP_CHECK_DEBUG_SECRET.takeIf { it.isNotBlank() }
+                ?: intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
 
             if (!debugToken.isNullOrEmpty()) {
                 val persistenceKey = firebaseApp.persistenceKey
