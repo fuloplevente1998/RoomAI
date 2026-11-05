@@ -1,0 +1,6 @@
+{
+  "name": "RoomAI",
+  "description": "AI-alapú belsőépítészeti és lakberendezési tervező alkalmazás valós idejű szobaátalakítással.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

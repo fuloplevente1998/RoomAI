@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">RoomAI</string>
+    <string name="app_subtitle">AI Belsőépítész &amp; Lakberendező</string>
+    <string name="welcome_title">Alakítsd át otthonodat mesterséges intelligenciával</string>
+    <string name="welcome_subtitle">Tölts fel egy fotót a szobádról, válassz stílust, és nézd meg a fotórealisztikus látványtervet másodpercek alatt.</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Kezdőlap</string>
+    <string name="nav_design">Tervezés</string>
+    <string name="nav_gallery">Saját terveim</string>
+    <string name="nav_assistant">Asszisztens</string>
+    <string name="nav_profile">Profil</string>
+
+    <!-- Main Actions -->
+    <string name="btn_new_design">Új szobaterv készítése</string>
+    <string name="btn_upload_photo">Fotó feltöltése</string>
+    <string name="btn_transform_room">Szoba átalakítása</string>
+    <string name="btn_try_demo">Interaktív bemutató indítása</string>
+    <string name="btn_analyze_room">AI Szobaelemzés indítása</string>
+    <string name="btn_compare">Előtte / Utána összehasonlítás</string>
+    <string name="btn_save_device">Mentés a készülékre</string>
+    <string name="btn_share">Megosztás</string>
+    <string name="btn_regenerate">Újragenerálás</string>
+    <string name="btn_retry">Újrapróbálkozás</string>
+
+    <!-- Sections -->
+    <string name="section_popular_styles">Népszerű lakberendezési stílusok</string>
+    <string name="section_recent_designs">Legutóbbi tervek</string>
+    <string name="section_premium_promo">RoomAI PRO Előfizetés</string>
+    <string name="section_room_analysis">Gemini AI Szobaelemzés</string>
+    <string name="section_style_selection">Válassz belsőépítészeti stílust</string>
+    <string name="section_customization">Személyre szabás és paraméterek</string>
+    <string name="section_custom_prompt">Egyedi utasítások az AI számára</string>
+
+    <!-- Disclaimer -->
+    <string name="measurement_disclaimer">Megjegyzés: A fenti méretek egyszerű fénykép alapján készült vizuális becslések, nem helyettesítik a pontos helyszíni felmérést.</string>
+</resources>
