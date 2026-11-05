@@ -22,14 +22,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK
+      - name: Cache Android SDK packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms/android-36
+            /usr/local/lib/android/sdk/build-tools/36.0.0
+          key: android-sdk-36-buildtools-36.0.0-v1
+      - name: Install Android SDK packages
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          cache-read-only: false
       - name: Create debug signing key
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
